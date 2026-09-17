@@ -1,0 +1,22 @@
+[Unit]
+Description=pogoscan AD7705 measurement server (http://<pi>:8080/)
+After=network-online.target
+Wants=network-online.target
+# keep retrying forever: the server exits with status 1 while the ADC supply is off and the registers do not read back
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=spi gpio
+WorkingDirectory=/home/pi/pogoscan
+ExecStart=/usr/bin/python3 -m pogoscan.server --host 0.0.0.0 --port 8080 --data-dir /home/pi/pogoscan/data
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+# Only the two project folders are tracked; everything else in this directory is local scratch or separate clones.
+/*
+!/.gitignore
+!/README.md
+!/pogoscan/
+!/SCP papers/
+
+# The source papers are copyrighted journal/patent PDFs and stay out of the public repository.
+SCP papers/*.pdf

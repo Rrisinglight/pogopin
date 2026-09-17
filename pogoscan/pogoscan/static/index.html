@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>pogoscan</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<header>
+  <h1>pogoscan</h1>
+  <div id="status" class="status">connecting…</div>
+</header>
+<main>
+  <section class="map">
+    <canvas id="heatmap" width="630" height="630" tabindex="0" aria-label="potential heatmap: rows down, columns across; arrow keys inspect cells, J jumps to the inspected cell"></canvas>
+    <div id="hover" class="hover" aria-live="polite"></div>
+    <div class="legend-row">
+      <span id="scale-min-label" class="num">min</span>
+      <canvas id="legend" width="300" height="14" aria-label="colour scale, light is low, dark is high"></canvas>
+      <span id="scale-max-label" class="num">max</span>
+      <span class="unit">µV</span>
+    </div>
+    <div class="key">
+      <span><i class="sw sw-empty"></i>not measured</span>
+      <span><i class="sw sw-next"></i>next (cursor)</span>
+      <span><i class="sw sw-last"></i>last measured</span>
+      <span><i class="sw sw-inspect"></i>inspected</span>
+    </div>
+    <div class="scale">
+      <label><input type="checkbox" id="scale-auto" checked> auto scale</label>
+      <label>min <input type="number" id="scale-min" step="0.1"></label>
+      <label>max <input type="number" id="scale-max" step="0.1"></label>
+      <label><input type="checkbox" id="relative-toggle" checked> relative to zero</label>
+    </div>
+    <details id="table-details" class="table">
+      <summary>Table of measured cells</summary>
+      <div class="tablewrap">
+        <table id="cell-table">
+          <thead><tr><th>row</th><th>col</th><th>x mm</th><th>y mm</th><th>shown µV</th><th>raw µV</th><th>± stdev</th><th>n</th><th>time (UTC)</th></tr></thead>
+          <tbody id="cell-table-body"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+  <section class="panel">
+    <div class="next">Next: <strong id="next-cell">–</strong></div>
+    <div class="progress" id="progress">0 / 0</div>
+    <div id="banner" class="banner" hidden>Scan complete — download CSV, JSON or PNG below.</div>
+    <button id="measure-btn" class="big">Measure <kbd>Space</kbd></button>
+    <div class="measuring"><span id="spinner" class="spinner" hidden aria-label="measuring"></span></div>
+    <div class="last">Last: <span id="last-value">–</span></div>
+    <div class="row">
+      <button id="undo-btn" title="remove the last recorded point and move the cursor back to it">Undo <kbd>U</kbd></button>
+      <button id="zero-btn" title="measure with the pin on the reference contact block and subtract that value from the display">Zero</button>
+      <button id="zero-clear-btn" title="show raw values again">Clear zero</button>
+    </div>
+    <div class="row">
+      <button id="calibrate-btn" title="AD7705 self-calibration: the chip shorts its own inputs and corrects its internal offset and gain (about 0.2 s)">Calibrate</button>
+      <button id="noise-btn" title="read 50 conversions (1 s) without recording and report mean and scatter in µV">Noise check</button>
+    </div>
+    <details id="help" class="help">
+      <summary>What do Noise check, Calibrate, Zero and Re-init do?</summary>
+      <dl>
+        <dt>Noise check</dt>
+        <dd>Reads 50 conversions (about 1 s at 50 Hz) from whatever the pin touches right now, records nothing, and reports the
+          mean and the scatter (standard deviation) in µV. The scatter tells you how healthy the setup is: about
+          <b>0.6 µV</b> is the chip's own noise at gain 128, so that is the best you can get per conversion. Much more means
+          pickup (mains hum, a moving cable), a poor or oxidised contact, or an open input. Exactly 0 means a stuck line.
+          The mean is just the present DC level; with the pin on the reference block it shows the offset that <b>Zero</b> would remove.
+          Averaging 100 conversions per point reduces the 0.6 µV to roughly 0.06 µV.</dd>
+        <dt>Calibrate</dt>
+        <dd>Runs the AD7705's <b>self-calibration</b>: the chip disconnects the pins, shorts its own inputs to measure its zero
+          error, then measures full scale against its 2.5 V reference, and stores both corrections in its offset and gain
+          registers (about 0.2 s, no measurement possible meanwhile). It corrects only errors <i>inside the chip</i>, which drift
+          by about 0.1 µV per °C. It runs automatically when a scan is created or opened and after every automatic re-init;
+          press it by hand after a large temperature change or when readings on the reference block drift.</dd>
+        <dt>Zero</dt>
+        <dd>Corrects what Calibrate cannot: offsets <i>outside the chip</i>, such as thermal EMF in the pogo pin, the wires and the
+          connectors. Put the moving pin on the reference contact block (same metal as the reference, so the true difference is
+          zero), press Zero, and the page shows every value minus that reading. Raw values stay in the file; "relative to zero"
+          switches the display. Re-zero when the fixture temperature changes.</dd>
+        <dt>Re-init ADC</dt>
+        <dd>Hardware reset of the chip, reprogramming of gain 128 / 50 Hz / bipolar, then a self-calibration. The server does the
+          same automatically when it finds the chip back at its power-on registers (after a supply blink) or after a DRDY
+          timeout; the button is for doing it deliberately after fixing a supply or wiring problem.</dd>
+      </dl>
+    </details>
+    <details class="new">
+      <summary>New scan</summary>
+      <label>name <input id="new-name" value="weld"></label>
+      <label>rows <input id="new-rows" type="number" value="21" min="1"></label>
+      <label>cols <input id="new-cols" type="number" value="21" min="1"></label>
+      <label>pitch mm <input id="new-pitch" type="number" value="3" step="0.1" min="0"></label>
+      <label>samples <input id="new-samples" type="number" value="100" min="3"></label>
+      <button id="new-btn">Start new scan</button>
+    </details>
+    <label class="open">Open scan <select id="open-select"></select></label>
+    <div class="row exports">
+      <a id="csv-link" href="/api/export.csv" download>CSV</a>
+      <a id="json-link" href="/api/export.json" download>JSON</a>
+      <button id="png-btn">PNG</button>
+    </div>
+    <section class="adc-status" id="adc-status" aria-live="polite">
+      <div class="adc-head"><span id="adc-dot" class="dot info"></span><strong>ADC</strong> <span id="adc-message">checking…</span></div>
+      <dl class="adc-grid">
+        <dt>mode</dt><dd id="adc-mode">–</dd>
+        <dt>registers</dt><dd id="adc-regs">–</dd>
+        <dt>settings</dt><dd id="adc-settings">–</dd>
+        <dt>last point</dt><dd id="adc-last-measure">–</dd>
+        <dt>last noise</dt><dd id="adc-last-noise">–</dd>
+        <dt>re-inits</dt><dd id="adc-reinits">0</dd>
+        <dt>last error</dt><dd id="adc-last-error">none</dd>
+        <dt>checked</dt><dd id="adc-checked">–</dd>
+      </dl>
+      <div class="row"><button id="reinit-btn" title="reset, configure and self-calibrate the ADC">Re-init ADC</button></div>
+    </section>
+    <div class="adc" id="adc-info"></div>
+    <div class="keys">Keys: <kbd>Space</kbd>/<kbd>Enter</kbd> measure · <kbd>U</kbd> undo · <kbd>←↑→↓</kbd> inspect a cell · <kbd>J</kbd> jump to it · click a cell to jump</div>
+  </section>
+</main>
+<div id="toast" class="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
